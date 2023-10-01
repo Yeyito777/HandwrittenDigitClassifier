@@ -8,6 +8,7 @@ using namespace std;
 #include <cmath>
 #include <thread>
 #include <chrono>
+#include <string>
 
 class Random {
 public:
@@ -52,7 +53,7 @@ public:
 
 int main() {
 	// 1. Instantiation
-	int neuronArrangement[] = {784,128,10};
+	int neuronArrangement[] = {784,512,256,128,64,10};
 	int ncount = 0;
 	for (int i = 0; i < (sizeof(neuronArrangement) / sizeof(int)); i++) {ncount = ncount + neuronArrangement[i];} 
 	int layers = (sizeof(neuronArrangement) / sizeof(int));
@@ -107,38 +108,39 @@ int main() {
 	
 	file2.close();
 	// 3. Feed-Forward & Back-Prop
-	// weightMatrix[ncount][ncount]
-	// int neuronArrangement[] = {784,1024,1024,1024,1024,10};
-	// int layers;
 	double activationVector[ncount];
-	int batchSize = 20;
-	int epochs = 1;
-	double learningRate = 0.1;
-    double dampening = 0.1;
+	int batchSize = 20; int batchSizeIncreasePerEpoch = 1;
+	int epochs = 25;
+	double learningRate = 0.1; double learningDecayPerEpoch = 1.2;
+    	double dampening = 0.1;
+	
 	double** diffMatrix = (double**)malloc(ncount * sizeof(double*));
 	for (int i = 0; i < ncount; i++) {
 		diffMatrix[i] = (double*)malloc(ncount * sizeof(double));
 	}
-    for (int i = 0; i < ncount; i++) {
-        for (int j = 0; j < ncount; j++) {
-            diffMatrix[i][j] = 0.0;
-        }
-    }
+   	
+	for (int i = 0; i < ncount; i++) {
+        	for (int j = 0; j < ncount; j++) {
+            		diffMatrix[i][j] = 0.0;
+        	}
+    	}
 	
-
+	bool increaseBS = false;
 	for (int i = 0; i < 60000*epochs;) {
 		vector<vector<double>> errorPerRun(batchSize,vector<double>(10));
 		vector<vector<double>> memActivationVector(batchSize,vector<double>(ncount));
 		vector<int> networkAccuracy(batchSize);
+		if (increaseBS) {batchSize = batchSize*batchSizeIncreasePerEpoch;}
+		if (i + batchSize >= 60000*epochs) {batchSize = 60000*epochs-i;}
 		for (int j = 0; j < batchSize; j++) {
-			vector<unsigned char> input = images[i+j];
+			if (i+j % 60000 == 0 && i+j != 0) {learningRate = learningRate / learningDecayPerEpoch; increaseBS = true;}
+			vector<unsigned char> input = images[(i%60000)+j];
 			double magnitude = 0;
 			for (int k = 0; k < input.size(); k++) {magnitude = magnitude + (input[k]*input[k]);}
 			magnitude = sqrt(magnitude);
 			// Feed-Forward
 			for (int k = 0; k < layers; k++) {
 				if (k == 0) {
-
 					for (int l = 0; l < neuronArrangement[k]; l++) {
 						activationVector[l] = input[l]/magnitude;
 					}
@@ -149,10 +151,9 @@ int main() {
 						for (int m = k-1; m >= 0; m--) {compensation = compensation + neuronArrangement[m];}
 						int neuron = l + compensation;
 						double s_k = weightMatrix[neuron][neuron]; // Initialization to bias
-						for (int m = 0; m < ncount; m++) {
-							if (util.getLayer(m,neuronArrangement,layers) == util.getLayer(neuron,neuronArrangement,layers) - 1 && activationVector[m] != 0) {
-								s_k = s_k + (activationVector[m] * weightMatrix[m][neuron]);
-							}
+						int previousLayerStart = compensation - neuronArrangement[k-1];
+						for (int m = previousLayerStart; m < previousLayerStart+neuronArrangement[k-1]; m++) {
+							s_k = s_k + (activationVector[m] * weightMatrix[m][neuron]);
 						}
 						activationVector[neuron] = util.sigmoid(s_k);
 					}
@@ -161,13 +162,13 @@ int main() {
 					// Error calculation
 					double highest_firing = 0;
 					for (int l = ncount-1; l >= ncount - neuronArrangement[layers-1]; l--) {
-                        if (activationVector[l] > highest_firing) {
+                        			if (activationVector[l] > highest_firing) {
 							highest_firing = activationVector[l];
 						}
 					}
 					for (int l = ncount-1; l >= ncount - neuronArrangement[layers-1]; l--) { // output neurons
 						// Neurons in ascending order: 0,1,2 ... 9
-						int imageLabel = static_cast<int>(labels[i+j]);
+						int imageLabel = static_cast<int>(labels[(i%60000)+j]);
 						int outputNeuron = ncount - 1 - l;
 						double dval = 0.0;
 						if (outputNeuron == imageLabel) {dval = 1.0;}
@@ -184,7 +185,6 @@ int main() {
 		}
 		// Back-Prop
 		// Loss calculation
-		// vector<vector<double>> errorPerRun(batchSize,vector<double>(10));
 		double loss = 0;
 		for (int j = 0; j < errorPerRun.size(); j++) {
 			double errorSum = 0;
@@ -204,10 +204,10 @@ int main() {
         
 		for (int err = 0; err < batchSize; err++) {
 			vector<double> sigmas(ncount);
+			// Sigma calculation
 			for (int j = ncount-1; j >= 0; j--) {
 				if (util.getLayer(j,neuronArrangement,layers) == layers-1) {
 					sigmas[j] = errorPerRun[err][ncount-1-j] * memActivationVector[err][j]*(1-memActivationVector[err][j]);
-					//cout << "S for neuron " << j << " in layer " << util.getLayer(j,neuronArrangement,layers) << " = " << sigmas[j] << endl;
 				}
 				else {
 					double sigmaSum = 0;
@@ -221,22 +221,147 @@ int main() {
 						sigmaSum += sigmas[k]*weightMatrix[j][k];
 					}
 					sigmas[j] = memActivationVector[err][j]*(1-memActivationVector[err][j]) * sigmaSum;
-					//cout << "S for neuron " << j << " in layer " << util.getLayer(j,neuronArrangement,layers) << " = " << sigmas[j] << endl;
 				}
-				//this_thread::sleep_for(chrono::milliseconds(700));
 			}
-			for (int j = 0; j < ncount; j++) {
-				for (int k = 0; k < ncount; k++) {
-                    if (util.getLayer(j,neuronArrangement,layers)+1 == util.getLayer(k,neuronArrangement,layers)) {
-                        double diff = learningRate*memActivationVector[err][j]*sigmas[k];
-					    weightMatrix[j][k] += diff + dampening*diffMatrix[j][k];
-                        diffMatrix[j][k] = diff;
-                    }
+			// Weight adjustment
+			for (int layer = 0; layer < layers-1; layer++) {
+				int compensation = 0;
+				for (int m = layer-1; m >= 0; m--) {compensation += neuronArrangement[m];}
+				for (int j = compensation; j < compensation + neuronArrangement[layer]; j++) {
+					for (int k = compensation + neuronArrangement[layer]; k < compensation + neuronArrangement[layer] + neuronArrangement[layer+1]; k++) {
+						
+						double diff = learningRate*memActivationVector[err][j]*sigmas[k];
+						weightMatrix[j][k] += diff + dampening*diffMatrix[j][k];
+						diffMatrix[j][k] = diff;
+					}
 				}
 			}
 		}
-
 		i = i+batchSize;
 	}
+	// Test set eval
+	// Loading test set
+	ifstream testfile("MNIST/test_labels",ios::binary);
+	if (!testfile) {cout << "[X] Failed to open MNIST/test_labels" << endl; exit(1);}
+	int testmagic_number = 0; testfile.read(reinterpret_cast<char*>(&testmagic_number),sizeof(testmagic_number));
+	testmagic_number = be32toh(testmagic_number);
+	int testnum_items = 0; testfile.read(reinterpret_cast<char*>(&testnum_items), sizeof(testnum_items));
+	testnum_items = be32toh(testnum_items);
+	
+	vector<unsigned char> testlabels(testnum_items);
+	testfile.read(reinterpret_cast<char*>(&testlabels[0]),testnum_items);
+	testfile.close();
+	
+	ifstream testfile2("MNIST/test_images", ios::binary);
+	if (!testfile2) {cout << "[X] Failed to open MNIST/test_images" << endl; exit(1);}
+	int testmagic_numberi = 0; testfile2.read(reinterpret_cast<char*>(&testmagic_numberi),sizeof(testmagic_numberi));
+	testmagic_numberi = be32toh(testmagic_numberi);
+	int testnum_itemsi = 0; testfile2.read(reinterpret_cast<char*>(&testnum_itemsi), sizeof(testnum_itemsi));
+	testnum_itemsi = be32toh(testnum_items);
+	int testnum_rows = 0; testfile2.read(reinterpret_cast<char*>(&testnum_rows),sizeof(testnum_rows));
+	testnum_rows = be32toh(testnum_rows);
+	int testnum_cols = 0; testfile2.read(reinterpret_cast<char*>(&testnum_cols),sizeof(testnum_cols));
+	testnum_cols = be32toh(testnum_cols);
+
+	vector<vector<unsigned char>> testimages(60000, vector<unsigned char>(784));
+	for (int i = 0; i < 60000; i++) {
+		for (int j = 0; j < 784; j++) {
+			testfile2.read(reinterpret_cast<char*>(&testimages[i][j]),sizeof(char));
+		}
+	}
+	
+	testfile2.close();
+		
+	cout << "[!] Done training, now testing" << endl;
+	batchSize = 10000;
+	int index = 0;
+	vector<vector<double>> errorPerRun(batchSize,vector<double>(10));
+	vector<vector<double>> memActivationVector(batchSize,vector<double>(ncount));
+	vector<int> networkAccuracy(batchSize);
+	for (int i = 0; i < batchSize; i++) {
+		if (i % 1000 == 0) {index++; cout << "[!] Test is " << (index*10) << "\% done" << endl;}
+		vector<unsigned char> input = images[i];
+		double magnitude = 0;
+		for (int k = 0; k < input.size(); k++) {magnitude = magnitude + (input[k]*input[k]);}
+		magnitude = sqrt(magnitude);
+		// Feed-Forward
+		for (int k = 0; k < layers; k++) {
+			if (k == 0) {
+				for (int l = 0; l < neuronArrangement[k]; l++) {
+					activationVector[l] = input[l]/magnitude;
+				}
+			}
+			else {
+				for (int l = 0; l < neuronArrangement[k]; l++) {
+					int compensation = 0;
+					for (int m = k-1; m >= 0; m--) {compensation = compensation + neuronArrangement[m];}
+					int neuron = l + compensation;
+					double s_k = weightMatrix[neuron][neuron]; // Initialization to bias
+					int previousLayerStart = compensation - neuronArrangement[k-1];
+					for (int m = previousLayerStart; m < previousLayerStart+neuronArrangement[k-1]; m++) {
+						s_k = s_k + (activationVector[m] * weightMatrix[m][neuron]);
+					}
+					activationVector[neuron] = util.sigmoid(s_k);
+				}
+			}
+			if (k == layers-1) {
+				// Error calculation
+				double highest_firing = 0;
+				for (int l = ncount-1; l >= ncount - neuronArrangement[layers-1]; l--) {
+                        		if (activationVector[l] > highest_firing) {
+						highest_firing = activationVector[l];
+					}
+				}
+				for (int l = ncount-1; l >= ncount - neuronArrangement[layers-1]; l--) { // output neurons
+					// Neurons in ascending order: 0,1,2 ... 9
+					int imageLabel = static_cast<int>(labels[i]);
+					int outputNeuron = ncount - 1 - l;
+					double dval = 0.0;
+					if (outputNeuron == imageLabel) {dval = 1.0;}
+					errorPerRun[i][outputNeuron] = dval - activationVector[l];
+					for (int m = 0; m < ncount; m++) {
+						memActivationVector[i][m] = activationVector[m];
+					}
+					if (activationVector[l] == highest_firing && dval == 1.0) {
+						networkAccuracy[i] = 1;
+					} else if (activationVector[l] == highest_firing && dval == 0.0) {networkAccuracy[i] = 0;}
+				}
+			}
+		}
+	}
+	// Loss calculation
+	double loss = 0;
+	for (int j = 0; j < errorPerRun.size(); j++) {
+		double errorSum = 0;
+		for (int k = 0; k < errorPerRun[j].size(); k++) {
+			errorSum += pow(errorPerRun[j][k],2);
+		}
+		errorSum = errorSum / 2;
+		loss = loss + (errorSum/errorPerRun.size());
+	}
+	double acc = 0;
+	for (int j = 0; j < networkAccuracy.size(); j++) {
+		acc += static_cast<double>(networkAccuracy[j])/static_cast<double>(networkAccuracy.size());
+	}
+	acc = acc*100;
+	cout << "Error in test set: " << loss << " || " << " With an accuracy of: " << acc << "%" << endl;
+	
+	// Saving
+	string name = to_string(acc);
+	cout << "[!] Done testing, saving as: trainedNetworks/" + name << endl;
+	ofstream outputFile("trainedNetworks/" + name);
+	if (outputFile.is_open()) {
+		for (int i = 0; i < layers; i++) {
+			outputFile << neuronArrangement[i] << ",";
+		}
+		outputFile << endl;
+		for (int i = 0; i < ncount; i++) {
+			for (int j = 0; j < ncount; j++) {
+				outputFile << weightMatrix[i][j] << ",";
+			}
+		}
+		cout << "[!] Saved weights to file Successfully";
+	} else {cout << "[X] Failed to open output file!";}
+	outputFile.close();
 	return(0);
 };
