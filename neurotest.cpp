@@ -9,6 +9,7 @@ using namespace std;
 #include <thread>
 #include <chrono>
 #include <string>
+#include <sstream>
 
 class Random {
 public:
@@ -53,8 +54,178 @@ public:
 
 int main(int argc, char* argv[]) {
 	// 0. Formats
+    if (argc > 1) {
+	    Util util;
+        if (argc != 2) {cout << "[X] Incorrect usage of arguments! Please do ./program [path_to_existing_network] to re-test!" << endl;return 1;}
+        ifstream network(argv[1]);
+        if (network.is_open()) {
+            cout << "[!] Retrieved network successfully!" << endl;
+            string line;
+            if (getline(network,line)) {
+                vector<int> neuronArrangementV;
+                istringstream iss(line);
+                string number;
+                while (getline(iss,number,',')) {
+                    int num = stoi(number);
+                    neuronArrangementV.push_back(num);
+                }
+
+                int neuronArrangement[neuronArrangementV.size()];
+                for (int i = 0; i < neuronArrangementV.size(); i++) {
+                    neuronArrangement[i] = neuronArrangementV[i];
+                }
+                cout << "[!] Loaded the following neuron arrangement: [";
+                for (int num : neuronArrangement) {
+                    cout << num;
+                    if (num != 10) {
+                        cout << ",";
+                    }
+                }
+                cout << "]" << endl;
+                
+                int ncount = 0; for (int i = 0; i < (sizeof(neuronArrangement) / sizeof(int)); i++) {ncount = ncount + neuronArrangement[i];} 
+	            int layers = (sizeof(neuronArrangement) / sizeof(int));
+	            
+                double** weightMatrix = (double**)malloc(ncount * sizeof(double*));
+	            for (int i = 0; i < ncount; i++) {
+		            weightMatrix[i] = (double*)malloc(ncount * sizeof(double));
+	            }
+                
+                getline(network,line);
+                istringstream iss2(line);
+                string number2;
+                int row = 0;
+                int col = 0;
+                while (getline(iss2,number2,',')) {
+                    double weight = stod(number2);
+                    weightMatrix[col][row] = weight;
+                    row++;
+                    if (row >= ncount) {
+                        row = 0;
+                        col++;
+                    }
+                }
+                cout << "[!] Successfully loaded weights!" << endl;           
+	            // Test set eval
+	            // Loading test set
+	            ifstream testfile("MNIST/test_labels",ios::binary);
+	            if (!testfile) {cout << "[X] Failed to open MNIST/test_labels" << endl; exit(1);}
+	            int testmagic_number = 0; testfile.read(reinterpret_cast<char*>(&testmagic_number),sizeof(testmagic_number));
+	            testmagic_number = be32toh(testmagic_number);
+	            int testnum_items = 0; testfile.read(reinterpret_cast<char*>(&testnum_items), sizeof(testnum_items));
+	            testnum_items = be32toh(testnum_items);
+	
+	            vector<unsigned char> testlabels(testnum_items);
+	            testfile.read(reinterpret_cast<char*>(&testlabels[0]),testnum_items);
+	            testfile.close();
+	
+	            ifstream testfile2("MNIST/test_images", ios::binary);
+	            if (!testfile2) {cout << "[X] Failed to open MNIST/test_images" << endl; exit(1);}
+	            int testmagic_numberi = 0; testfile2.read(reinterpret_cast<char*>(&testmagic_numberi),sizeof(testmagic_numberi));
+	            testmagic_numberi = be32toh(testmagic_numberi);
+	            int testnum_itemsi = 0; testfile2.read(reinterpret_cast<char*>(&testnum_itemsi), sizeof(testnum_itemsi));
+	            testnum_itemsi = be32toh(testnum_items);
+	            int testnum_rows = 0; testfile2.read(reinterpret_cast<char*>(&testnum_rows),sizeof(testnum_rows));
+	            testnum_rows = be32toh(testnum_rows);
+	            int testnum_cols = 0; testfile2.read(reinterpret_cast<char*>(&testnum_cols),sizeof(testnum_cols));
+	            testnum_cols = be32toh(testnum_cols);
+
+	            vector<vector<unsigned char>> testimages(10000, vector<unsigned char>(784));
+	            for (int i = 0; i < 10000; i++) {
+		            for (int j = 0; j < 784; j++) {
+			            testfile2.read(reinterpret_cast<char*>(&testimages[i][j]),sizeof(char));
+		            }
+	            }
+	
+	            testfile2.close();
+		
+	            cout << "[!] Re-testing the network!" << endl;
+	            int batchSize = 10000;
+	            int index = 0;
+	            vector<vector<double>> errorPerRun(batchSize,vector<double>(10));
+	            vector<vector<double>> memActivationVector(batchSize,vector<double>(ncount));
+	            vector<int> networkAccuracy(batchSize);
+	            double activationVector[ncount];
+	            
+                for (int i = 0; i < batchSize; i++) {
+		            if (i % 1000 == 0) {index++; cout << "[!] Test is " << (index*10) << "\% done" << endl;}
+		            vector<unsigned char> input = testimages[i];
+		            double magnitude = 0;
+		            for (int k = 0; k < input.size(); k++) {magnitude = magnitude + (input[k]*input[k]);}
+		            magnitude = sqrt(magnitude);
+		            // Feed-Forward
+		            for (int k = 0; k < layers; k++) {
+			            if (k == 0) {
+				            for (int l = 0; l < neuronArrangement[k]; l++) {
+					            activationVector[l] = input[l]/magnitude;
+				            }
+			            }
+			            else {
+				            for (int l = 0; l < neuronArrangement[k]; l++) {
+					            int compensation = 0;
+					            for (int m = k-1; m >= 0; m--) {compensation = compensation + neuronArrangement[m];}
+					            int neuron = l + compensation;
+					            double s_k = weightMatrix[neuron][neuron]; // Initialization to bias
+					            int previousLayerStart = compensation - neuronArrangement[k-1];
+					            for (int m = previousLayerStart; m < previousLayerStart+neuronArrangement[k-1]; m++) {
+						            s_k = s_k + (activationVector[m] * weightMatrix[m][neuron]);
+					            }
+					            activationVector[neuron] = util.sigmoid(s_k);
+				            }
+			            }
+			            if (k == layers-1) {
+				            // Error calculation
+				            double highest_firing = 0;
+				            for (int l = ncount-1; l >= ncount - neuronArrangement[layers-1]; l--) {
+                        		            if (activationVector[l] > highest_firing) {
+						            highest_firing = activationVector[l];
+					            }
+				            }
+				            for (int l = ncount-1; l >= ncount - neuronArrangement[layers-1]; l--) { // output neurons
+					            // Neurons in ascending order: 0,1,2 ... 9
+					            int imageLabel = static_cast<int>(testlabels[i]);
+					            int outputNeuron = ncount - 1 - l;
+					            double dval = 0.0;
+					            if (outputNeuron == imageLabel) {dval = 1.0;}
+					            errorPerRun[i][outputNeuron] = dval - activationVector[l];
+					            for (int m = 0; m < ncount; m++) {
+						            memActivationVector[i][m] = activationVector[m];
+					            }
+					            if (activationVector[l] == highest_firing && dval == 1.0) {
+						            networkAccuracy[i] = 1;
+					            } else if (activationVector[l] == highest_firing && dval == 0.0) {networkAccuracy[i] = 0;}
+				            }
+			            }
+		            }
+	            }
+	            // Loss calculation
+	            double loss = 0;
+	            for (int j = 0; j < errorPerRun.size(); j++) {
+		            double errorSum = 0;
+		            for (int k = 0; k < errorPerRun[j].size(); k++) {
+			            errorSum += pow(errorPerRun[j][k],2);
+		            }
+		            errorSum = errorSum / 2;
+		            loss = loss + (errorSum/errorPerRun.size());
+	            }
+	            double acc = 0;
+	            for (int j = 0; j < networkAccuracy.size(); j++) {
+	                acc += static_cast<double>(networkAccuracy[j])/static_cast<double>(networkAccuracy.size());
+	            }
+	            acc = acc*100;
+	            cout << "Error in test set: " << loss << " || " << " With an accuracy of: " << acc << "%" << endl;
+                // End of retest
+            } else {
+                cout << "[X] The file is empty!" << endl;
+            }
+
+            return 0;
+        } else {
+            cout << "[X] Could not open file!" << endl; return 1;
+        }
+    }
 	// 1. Instantiation
-	int neuronArrangement[] = {784,512,384,256,128,64,10};
+	int neuronArrangement[] = {784,64,64,64,64,10};
 	int ncount = 0;
 	for (int i = 0; i < (sizeof(neuronArrangement) / sizeof(int)); i++) {ncount = ncount + neuronArrangement[i];} 
 	int layers = (sizeof(neuronArrangement) / sizeof(int));
@@ -111,9 +282,9 @@ int main(int argc, char* argv[]) {
 	// 3. Feed-Forward & Back-Prop
 	double activationVector[ncount];
 	int batchSize = 20; int batchSizeIncreasePerEpoch = 1;
-	int epochs = 100;
-	double learningRate = 0.1; double learningDecayPerEpoch = 1.15;
-    	double dampening = 0.1;
+	int epochs = 300;
+	double learningRate = 0.1; double learningDecayPerEpoch = 1.2;
+    double dampening = 0.1;
 	
 	double** diffMatrix = (double**)malloc(ncount * sizeof(double*));
 	for (int i = 0; i < ncount; i++) {
@@ -264,8 +435,8 @@ int main(int argc, char* argv[]) {
 	int testnum_cols = 0; testfile2.read(reinterpret_cast<char*>(&testnum_cols),sizeof(testnum_cols));
 	testnum_cols = be32toh(testnum_cols);
 
-	vector<vector<unsigned char>> testimages(60000, vector<unsigned char>(784));
-	for (int i = 0; i < 60000; i++) {
+	vector<vector<unsigned char>> testimages(10000, vector<unsigned char>(784));
+	for (int i = 0; i < 10000; i++) {
 		for (int j = 0; j < 784; j++) {
 			testfile2.read(reinterpret_cast<char*>(&testimages[i][j]),sizeof(char));
 		}
@@ -315,7 +486,7 @@ int main(int argc, char* argv[]) {
 				}
 				for (int l = ncount-1; l >= ncount - neuronArrangement[layers-1]; l--) { // output neurons
 					// Neurons in ascending order: 0,1,2 ... 9
-					int imageLabel = static_cast<int>(labels[i]);
+					int imageLabel = static_cast<int>(testlabels[i]);
 					int outputNeuron = ncount - 1 - l;
 					double dval = 0.0;
 					if (outputNeuron == imageLabel) {dval = 1.0;}
