@@ -51,9 +51,10 @@ public:
 	}
 };
 
-int main() {
+int main(int argc, char* argv[]) {
+	// 0. Formats
 	// 1. Instantiation
-	int neuronArrangement[] = {784,512,256,128,64,10};
+	int neuronArrangement[] = {784,512,384,256,128,64,10};
 	int ncount = 0;
 	for (int i = 0; i < (sizeof(neuronArrangement) / sizeof(int)); i++) {ncount = ncount + neuronArrangement[i];} 
 	int layers = (sizeof(neuronArrangement) / sizeof(int));
@@ -110,8 +111,8 @@ int main() {
 	// 3. Feed-Forward & Back-Prop
 	double activationVector[ncount];
 	int batchSize = 20; int batchSizeIncreasePerEpoch = 1;
-	int epochs = 25;
-	double learningRate = 0.1; double learningDecayPerEpoch = 1.2;
+	int epochs = 100;
+	double learningRate = 0.1; double learningDecayPerEpoch = 1.15;
     	double dampening = 0.1;
 	
 	double** diffMatrix = (double**)malloc(ncount * sizeof(double*));
@@ -280,7 +281,7 @@ int main() {
 	vector<int> networkAccuracy(batchSize);
 	for (int i = 0; i < batchSize; i++) {
 		if (i % 1000 == 0) {index++; cout << "[!] Test is " << (index*10) << "\% done" << endl;}
-		vector<unsigned char> input = images[i];
+		vector<unsigned char> input = testimages[i];
 		double magnitude = 0;
 		for (int k = 0; k < input.size(); k++) {magnitude = magnitude + (input[k]*input[k]);}
 		magnitude = sqrt(magnitude);
