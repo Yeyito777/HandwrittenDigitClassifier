@@ -225,7 +225,7 @@ int main(int argc, char* argv[]) {
         }
     }
 	// 1. Instantiation
-	int neuronArrangement[] = {784,64,64,64,64,10};
+	int neuronArrangement[] = {784,64,64,64,64,64,64,10};
 	int ncount = 0;
 	for (int i = 0; i < (sizeof(neuronArrangement) / sizeof(int)); i++) {ncount = ncount + neuronArrangement[i];} 
 	int layers = (sizeof(neuronArrangement) / sizeof(int));
